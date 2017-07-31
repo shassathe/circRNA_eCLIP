@@ -16,6 +16,13 @@ from argparse import ArgumentParser
 
 
 def parse_sam_file (samfile):
+    """
+    This function will parse the input sam file and search for reads mapping to backsplicing junctions. Unmapped reads
+    are exluded from analysis. For now, only primary alignments are being considered. Also, only those reads that span
+    across both exons of a backsplicing junctions are considered. The rest are excluded from all analysis.
+    :param samfile: Input BWA alignment sam file. This has to be the alignment file for the backsplicing database.
+    :return: Filtered sam file that contains only those reads that pass all parameters.
+    """
     samfile = pandas.read_csv(samfile, sep='\t', comment='@', names=['rname','flag','junc_name','pos','mapq','cigar',
                                                                      'rnext','pnext','tlen','seq','qual','AS','XS'])
     # Sam file flag 4 reads are unmapped. So, excluding such reads.
@@ -36,10 +43,16 @@ def parse_sam_file (samfile):
     samfile['match_len'] = samfile['cigar'].str.extract('(\d\d)', expand=True)
     samfile['match_end_pos'] = samfile['pos'].astype(int) + samfile['match_len'].astype(int)
     samfile = samfile[(samfile['match_end_pos'] > 25) & (samfile['pos'] < 25)]
-    return samfile
+    coverage = count_backsplicing_junc_coverage((samfile))
+    return samfile, coverage
 
 
 def count_backsplicing_junc_coverage (samfile):
+    """
+    This function counts the number of reads mapped across each backsplicing junction in the alignment file.
+    :param samfile: The filtered sam file from the 'parse_sam_file' function.
+    :return: Dataframe for coverge across each junction
+    """
     return samfile['junc_name'].value_counts()
 
 
@@ -52,8 +65,7 @@ def main():
     if os.path.isfile(args.alignment_file):
         print("Found Sam File...\n")
         print("Reading bed file...\n")
-        samfile_filtered = parse_sam_file(args.alignment_file)
-        backsplicing_junc_cov = count_backsplicing_junc_coverage(samfile_filtered)
+        samfile_filtered, backsplicing_junc_cov = parse_sam_file(args.alignment_file)
         backsplicing_junc_cov.columns = ['Coverage']
         print("Found %d possible reads that map to backspicing junctions."%len(set(samfile_filtered.rname)))
         print("Found %d possible backspicing junctions."%len(backsplicing_junc_cov.index))
