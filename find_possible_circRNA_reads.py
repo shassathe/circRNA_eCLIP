@@ -40,7 +40,7 @@ def intersect_bed_files(f1, f2, col):
     return f_intersect_df.drop_duplicates('rname-key')
 
 
-def keep_multimapping_reads(df, col1, col2):
+def keep_multi_jxn_spanning_reads(df, col1, col2):
     """
     This function searches for reads that map to multiple exons or introns within a transcript. The function does not
     search for reads mapping to multiple exons and introns at the same time. It searches for exons or introns
@@ -193,6 +193,17 @@ def main():
     parser = ArgumentParser(description="Find reads that potentially map across circularRNAs.")
     parser.add_argument("--alignment_bed", help="Full path and name of bed file containing alignments")
     parser.add_argument("--output_dir", help="Full path to output directory")
+    parser.add_argument(
+        "--exons",
+        default='/home/shsathe/annotation_files/hg19_exons_numbers.bed',
+        help="Full path to bed file containing exons"
+    )
+    parser.add_argument(
+        "--introns",
+        default='/home/shsathe/annotation_files/hg19_introns_numbers.bed',
+        help="Full path to bed file containing introns"
+    )
+
     args = parser.parse_args()
 
     if os.path.isfile(args.alignment_bed):
@@ -201,20 +212,22 @@ def main():
         bedfile = pybedtools.BedTool(args.alignment_bed)
 
         print("Intersecting mapped reads with exon and intron annotations...")
-        exon_bed = pybedtools.BedTool('/home/shsathe/annotation_files/hg19_exons_numbers.bed')
+        exon_bed = pybedtools.BedTool(args.exons)
         reads_and_exons_df = intersect_bed_files(bedfile, exon_bed, 'exon')
 
-        intron_bed = pybedtools.BedTool('/home/shsathe/annotation_files/hg19_introns_numbers.bed')
+        intron_bed = pybedtools.BedTool(args.introns)
         reads_and_introns_df = intersect_bed_files(bedfile, intron_bed, 'intron')
 
+        ### If aligned reads do not overlap with either exons or introns, pass
         if (len(reads_and_exons_df) == 0) & (len(reads_and_introns_df) == 0):
             parser.error("No reads found that map to introns or exons ! Check input bed file...")
 
+        ### If aligned reads overlap with ONLY exons
         elif (len(reads_and_exons_df) != 0) & (len(reads_and_introns_df) == 0):
             print("Found exon-mapping reads, but no intron-mapping reads found. Proceeding to analyze exon-mapping "
                   "reads...")
             reads_multi_mapping_to_exons, potential_circrna_exon_exon_juncs, potential_circrna_exon_exon_rname_tx = \
-                keep_multimapping_reads(reads_and_exons_df, 'exon_txID', 'exon_num')
+                keep_multi_jxn_spanning_reads(reads_and_exons_df, 'exon_txID', 'exon_num')
             if len(reads_multi_mapping_to_exons) == 0:
                 parser.error("No reads found that map multiple exons within the same transcript. Dataset likely does "
                              "not contain reads that map to circular RNAs.")
@@ -232,12 +245,12 @@ def main():
                     exon_exon_juncs_counts_df.columns = ['Read Count']
                     exon_exon_juncs_counts_df.to_csv(args.output_dir + '/CircRNA_Exon_Exon_Junction_Read_Counts.txt',
                                                      sep='\t')
-
+        ### If aligned reads overlap with ONLY introns
         elif (len(reads_and_exons_df) == 0) & (len(reads_and_introns_df) != 0):
             print("Found intron-mapping reads, but no exon-mapping reads found. Proceeding to analyze intron-mapping "
                   "reads...")
             reads_multi_mapping_to_introns, potential_circrna_intron_intron_juncs, \
-            potential_circrna_intron_intron_rname_tx = keep_multimapping_reads(reads_and_introns_df, 'intron_txID',
+            potential_circrna_intron_intron_rname_tx = keep_multi_jxn_spanning_reads(reads_and_introns_df, 'intron_txID',
                                                                                'intron_num')
             if (reads_multi_mapping_to_introns) == 0:
                 parser.error("No reads found that map multiple introns within the same transcript. Dataset likely does "
@@ -260,11 +273,14 @@ def main():
         else:
             print("Found exon-mapping reads and intron-mapping reads found. Proceeding with analysis...")
             reads_multi_mapping_to_exons, potential_circrna_exon_exon_juncs, \
-            potential_circrna_exon_exon_rname_tx = keep_multimapping_reads(reads_and_exons_df, 'exon_txID',
-                                                                           'exon_num')
+            potential_circrna_exon_exon_rname_tx = keep_multi_jxn_spanning_reads(
+                reads_and_exons_df, 'exon_txID', 'exon_num'
+            )
             reads_multi_mapping_to_introns, potential_circrna_intron_intron_juncs, \
-            potential_circrna_intron_intron_rname_tx = keep_multimapping_reads(reads_and_introns_df, 'intron_txID',
-                                                                               'intron_num')
+            potential_circrna_intron_intron_rname_tx = keep_multi_jxn_spanning_reads(
+                reads_and_introns_df, 'intron_txID', 'intron_num'
+            )
+
             if (len(reads_multi_mapping_to_exons) == 0) & (len(reads_multi_mapping_to_introns) == 0):
                 parser.error("No reads found that map to multiple exons or introns within the same transcript. Dataset "
                              "likely does not contain circular RNAs.")
