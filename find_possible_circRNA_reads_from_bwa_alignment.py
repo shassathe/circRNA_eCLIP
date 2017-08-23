@@ -62,6 +62,12 @@ def parse_sam_file (samfile):
 
 
 def check_for_duplicate_reads(samfile):
+    """
+    This function will check for duplicate reads and remove them from the samfile. The function will return a samfile that does 
+    not contain any duplicate reads.
+    :param samfile: The filtered sam file from the 'parse_sam_file' function.
+    :return: samfile without duplicate reads
+    """
     samfile['key'] = samfile['junc_name']+'_'+samfile['flag'].astype(str)+'_'+samfile['pos'].astype(str)+'_'+\
                      samfile['cigar'].astype(str)+'_'+samfile['seq']
     samfile = samfile.drop_duplicates('key')
