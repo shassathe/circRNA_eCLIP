@@ -27,24 +27,45 @@ def parse_sam_file (samfile):
                                                                      'rnext','pnext','tlen','seq','qual','AS','XS'])
     # Sam file flag 4 reads are unmapped. So, excluding such reads.
     samfile = samfile[samfile['flag'] != 4]
+
     # Annotating transcript across which each read was mapped.
     samfile['tx'] = map(lambda x: x.split('__')[0], samfile['junc_name'])
+
     # Generate read and transcript key.
     samfile['rname-tx'] = samfile['rname'] +'-'+ samfile['tx']
+
     # Extract reads that show soft or hard splicing or insertions or deletions. For now not considering such reads. Need
     #  to analyze them further
     X = samfile[samfile['cigar'].str.contains('S') | samfile['cigar'].str.contains('H') | samfile['cigar'].str.
         contains('I') | samfile['cigar'].str.contains('D')]
     samfile = samfile.loc[set(samfile.index).difference(set(X.index))]
-    # Keep only primary alignments. Exclusing secondary alignmens for now
+
+    # Keep only primary alignments. Excluding secondary alignmens for now
     samfile = samfile[(samfile['flag'] == 0) | (samfile['flag'] == 16)]
-    # Search for reads that start mapping after position '25' or those that finish mapping before position '25'. Such
+
+    # Search for reads that start mapping after position '36' or those that finish mapping before position '36'. Such
     # reads essentially map to only one exon of the junction, so excluding them from analysis.
     samfile['match_len'] = samfile['cigar'].str.extract('(\d\d)', expand=True)
     samfile['match_end_pos'] = samfile['pos'].astype(int) + samfile['match_len'].astype(int)
-    samfile = samfile[(samfile['match_end_pos'] > 25) & (samfile['pos'] < 25)]
-    coverage = count_backsplicing_junc_coverage((samfile))
+    samfile = samfile[(samfile['match_end_pos'] >= 40) & (samfile['pos'] <= 31)]
+
+    # Remove reads that have a mapping quality less than 20 ( -log10(0.01) ). Also remove reads that have a mapping
+    # quality of 255. 255 means that a mapping quality score is not available for the read.
+    samfile = samfile[(samfile['mapq'] >= 20) & (samfile['mapq'] != 255)]
+
+    # Remove duplicate reads. Reads are considered duplicates if they have the same start and end position on the same
+    # junction
+    samfile = check_for_duplicate_reads(samfile)
+
+    coverage = count_backsplicing_junc_coverage(samfile)
     return samfile, coverage
+
+
+def check_for_duplicate_reads(samfile):
+    samfile['key'] = samfile['junc_name']+'_'+samfile['flag'].astype(str)+'_'+samfile['pos'].astype(str)+'_'+\
+                     samfile['cigar'].astype(str)+'_'+samfile['seq']
+    samfile = samfile.drop_duplicates('key')
+    return samfile.drop('key',1)
 
 
 def count_backsplicing_junc_coverage (samfile):
@@ -64,8 +85,11 @@ def main():
 
     if os.path.isfile(args.alignment_file):
         print("Found Sam File...\n")
-        print("Reading bed file...\n")
         samfile_filtered, backsplicing_junc_cov = parse_sam_file(args.alignment_file)
+        output_file = args.output_dir+'/Filtered_Sam_File.txt'
+        samfile_filtered.to_csv(output_file, sep='\t')
+        print("Filter sam file written to following file: %s"%output_file)
+
         backsplicing_junc_cov.columns = ['Coverage']
         print("Found %d possible reads that map to backspicing junctions."%len(set(samfile_filtered.rname)))
         print("Found %d possible backspicing junctions."%len(backsplicing_junc_cov.index))
