@@ -74,7 +74,7 @@ def check_for_duplicate_reads(samfile):
     :return: samfile without duplicate reads
     """
     samfile['key'] = samfile['junc_name']+'_'+samfile['flag'].astype(str)+'_'+samfile['pos'].astype(str)+'_'+ \
-                     samfile['cigar'].astype(str)+'_'+samfile['seq']
+                     samfile['cigar'].astype(str)
     samfile = samfile.drop_duplicates('key')
     return samfile.drop('key',1)
 
