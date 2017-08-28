@@ -128,13 +128,13 @@ def count_backsplicing_junc_coverage(samfile):
 
 def normalize_by_input(ip, inpt):
     """
-    This function accepts junction coverage files for IP and Input and normalizes each junction read count in IP file 
+    This function accepts junction coverage files for IP and Input and normalizes each junction read count in IP file
     with the corresponding read count in the Input sample
-    :param ip: IP junction coverage file 
+    :param ip: IP junction coverage file
     :param inpt: Input junction coverage file
     :return: Dataframe with number of IP and Input reads for each junction and the normalized IP read counts.
     """
-    df = pandas.DataFrame(index=list(ip.index), columns=['IP','INPUT','IP/INPUT'])
+    df = pandas.DataFrame(index=list(ip.index), columns=['IP', 'INPUT', 'IP/INPUT'])
     df['IP'] = ip
     df.loc[set(ip.index).intersection(set(inpt.index)), 'INPUT'] = inpt.loc[set(ip.index).intersection(set(inpt.index))]
     df['IP/INPUT'] = df['IP'].div(df['INPUT'])
@@ -152,17 +152,20 @@ def main():
     parser.add_argument("--type", help="Type of junctions. exon-exon or intron-intron")
     args = parser.parse_args()
 
+    # Check if IP sam file exists
     if os.path.isfile(args.ip):
         print("Found IP Sam File...\n")
         ip_filtered, ip_backsplicing_junc_cov, ip_backsplicing_junc_bed_file = parse_sam_file(args.ip,
-                                                                                             args.cut_off, 'ip')
+                                                                                              args.cut_off, 'ip')
 
         # Check if any junctions passed the 10 reads cut-off.
         if ip_backsplicing_junc_bed_file == 0:
             print("No backsplicing %s junctions were found in the IP sample." % args.type)
         else:
+            if args.input == '':
+                print('INPUT SAM file not provided. Junction read counts will not be input normalized.')
             # If input sam file is given, parse input sam file and normalized ip with input
-            if os.path.isfile(args.input):
+            elif os.path.isfile(args.input):
                 print("Found INPUT Sam File. Input normalization of IP sample will be performed")
                 input_samfile_filtered, input_backsplicing_junc_cov, input_backsplicing_junc_bed_file = parse_sam_file(
                     args.input, args.cut_off, 'input')
@@ -170,6 +173,8 @@ def main():
                 output_file = args.output_dir + '/IP_Backsplicing_Junctions_Coverage_Input_Normalized.txt'
                 ip_normalized_juncs.to_csv(output_file, sep='\t')
                 print("INPUT Normalized Junctions written to following file: %s" % output_file)
+            else:
+                parser.error("INPUT SAM file not found. Enter correct path and name")
 
             output_file = args.output_dir + '/Filtered_Sam_File.txt'
             ip_filtered.to_csv(output_file, sep='\t')
@@ -185,6 +190,9 @@ def main():
             output_file = args.output_dir + '/Backsplicing_Junction_Coverages.txt'
             ip_backsplicing_junc_cov.to_csv(output_file, sep='\t')
             print("Coverage for each backsplicing junction found written to following file: %s" % output_file)
+
+    else:
+        parser.error("IP SAM file not found. Enter correct path and name.")
 
 
 if __name__ == '__main__':
