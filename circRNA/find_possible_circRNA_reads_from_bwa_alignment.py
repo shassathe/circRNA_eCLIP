@@ -127,6 +127,13 @@ def count_backsplicing_junc_coverage(samfile):
 
 
 def normalize_by_input(ip, inpt):
+    """
+    This function accepts junction coverage files for IP and Input and normalizes each junction read count in IP file 
+    with the corresponding read count in the Input sample
+    :param ip: IP junction coverage file 
+    :param inpt: Input junction coverage file
+    :return: Dataframe with number of IP and Input reads for each junction and the normalized IP read counts.
+    """
     df = pandas.DataFrame(index=list(ip.index), columns=['IP','INPUT','IP/INPUT'])
     df['IP'] = ip
     df.loc[set(ip.index).intersection(set(inpt.index)), 'INPUT'] = inpt.loc[set(ip.index).intersection(set(inpt.index))]
