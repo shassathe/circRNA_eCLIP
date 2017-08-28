@@ -130,7 +130,7 @@ def normalize_by_input(ip, inpt):
     df = pandas.DataFrame(index=list(ip.index), columns=['IP','INPUT','IP/INPUT'])
     df['IP'] = ip
     df.loc[set(ip.index).intersection(set(inpt.index)), 'INPUT'] = inpt.loc[set(ip.index).intersection(set(inpt.index))]
-    df['log2(IP/INPUT)'] = df['IP'].div(df['INPUT'])
+    df['IP/INPUT'] = df['IP'].div(df['INPUT'])
     df['INPUT'] = df['INPUT'].fillna(0)
     return df
 
