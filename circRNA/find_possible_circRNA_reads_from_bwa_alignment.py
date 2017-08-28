@@ -77,6 +77,7 @@ def parse_sam_file(samfile, cut_off, sample):
     else:
         # Create bed file from all filtered junctions
         bed_file = create_bed_for_junctions(set(samfile.junc_name))
+        # Intersect bed file with known circular RNA taken from circBase (http://www.circbase.org/)
         known = bed_file.intersect('/home/shsathe/backsplicing_exons_db/hsa_hg19_circRNA.bed', u=True)
         return samfile, coverage, known
 
