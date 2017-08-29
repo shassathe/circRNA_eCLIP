@@ -1,14 +1,71 @@
-# This script accepts a tab separated files, with the junction co-ordinate key as first column and the corresponding
-# sequence as the second column. The junction co-ordinate key should be in the following format :
-# 'chr__start__end__txID__exonNumber__strand'. The script required two separate files for start and end of exon
-# junctions. The final output of the script will be a fasta file containing sequences of all possible backsplicing
-# junctions. This fasta file can then be used to generate a bwa / STAR index.
-
 # Import required libraries
 import pandas
 import numpy
 import os
+import pybedtools
 from argparse import ArgumentParser
+
+
+def parse_exons_bed_file(f):
+    """
+    This function reads and parses the initial exon coordinates bed file provided by the user. The function will read
+    the file and assign a sequential 'exon number' to each exon within the group. Group is determined from column 4 of
+    the bed file.
+    :param f: Path to exon BED file
+    :return: pandas dataframe with bed file columns
+    """
+    # TODO:The whole function works on pandas, even for parsing a BED file. Can be probably implemented in a better way
+    # TODO:using pybedtools.
+
+    # Read bed file using pandas
+    exons = pandas.read_csv(f, sep='\t', names=['chr', 'start', 'stop', 'gene', 'x', 'strand'])
+    # Sort bed file by group and start coordinate
+    exons = exons.sort_values(['gene', 'start'])
+    # Assign exon number to each exon
+    exons['exon_num'] = exons.groupby('gene').cumcount()
+    exons['key'] = exons['chr'] + '__' + exons['start'].astype(str) + '__' + exons['stop'].astype(str) + '__' + \
+                   exons['gene'] + '__' + exons['exon_num'].astype(str) + '__' + exons['strand']
+    return exons[['chr', 'start', 'stop', 'key', 'exon_num', 'strand']]
+
+
+def create_exon_starts_bed_file(df):
+    """
+    Creates a bed file that contains coordinates for the first 35 bp of each exon
+    :param df: Exon coordinates dataframe
+    :return: Coordinates for the start of each exon
+    """
+    df['start'] = df['start'] - 1
+    df['stop'] = df['start'] + 35
+    return BedTool.from_dataframe(df)
+
+
+def create_exon_stops_bed_file(df):
+    """
+    Creates a bed file that contains coordinates for the last 35 bp of each exon
+    :param df: Exon coordinates dataframe
+    :return: Coordinates for the end of each exon
+    """
+    df['start'] = df['stop'] - 36
+    return BedTool.from_dataframe(df)
+
+
+def extract_genome_seqs_for_regions(bed, genome_seqs):
+    """
+    This function uses the pybedtools wrapper for 'bedtools getfasta' to extract sequences for the regions within a
+    given bed file. Here, the bed file is either the starting or ending 35 bp of an exon
+    :param bed: Start / End coordinates bed file
+    :param genome_seqs: Genome fasta file to extract the sequences from
+    :return: Dataframe containing the sequences for regions in the passed bed file
+    """
+    region_seqs = bed.sequence(fi=genome_seqs, name=True, tab=True)
+    region_seqs = open(region_seqs.seqfn).read()
+    l = [map(str, x.split("\t")) for x in region_seqs.split('\n')]
+    region_seqs = pandas.DataFrame(data=l, columns=['key','seq'])
+    region_seqs.index = map(lambda x: x.split('__')[3]+'__'+x.split('__')[4], region_seqs['key'])
+    region_seqs['gene'] = map(lambda x: x.split('__')[3], region_seqs['key'])
+    region_seqs['exon_num'] = map(lambda x: x.split('__')[4], region_seqs['key'])
+    region_seqs['strand'] = map(lambda x: x.split('__')[5], region_seqs['key'])
+    return region_seqs
 
 
 def parse_seq_file(f):
@@ -27,59 +84,79 @@ def parse_seq_file(f):
     return df
 
 
-def generate_backsplicing_junction_seqs(starts, ends):
+def generate_backsplicing_junction_seqs(starts, stops):
     """
     This function concatenates the sequences from two backsplicing exons to generate a single backsplicing junction
-    sequence. This will be done for all possible combinations of backsplicing exons.
+    sequence. This will be done for all possible combinations of backsplicing exons within a region, eg: gene or
+    transcript.
     :param starts: Dataframe for exon starts.
     :param ends: Dataframe for exon ends.
-    :return d: Dictionary with the backsplicing junction name as key and the corresponsing sequence as value
+    :return dd: pandas Dataframe with the backsplicing junction coordinate and name as key and the corresponding
+    sequence as column values
     """
-    # Group starts dataframe by transcript ID and iterate over each group / transcript.
-    start_grouped = starts.groupby('tx')
+    # Group dataframe by region.
+    start_grouped = starts.groupby('gene')
     d = dict()
     for name, grp in start_grouped:
-        # Check if the transcript has more than 3 exons. A transcript with 3 or less exons cannot form circular RNAs.
+        # Since we are not considering terminal exons, only consider those regions that have more than 3 exons. If a
+        # transcript has 3 or less exons, skip that transcript
         if list(grp['exon_num'])[-1] > 3:
-            # Subset ends dataframe for the same current transcript
-            df = ends[ends['tx'] == name]
-            # Since order of exons matters, '+' and '-' strands are parsed separately. All backsplicing exon
-            # combinations for each transcript are generated by looping over all exons in the transcript. The 5' and 3'
-            # exons are excluded from the loops, since they cannot form circular RNAs.
+            df = stops[stops['gene'] == name]
+            # Loop over an exon and every exon succeeding in
             if '+' in list(grp['strand']):
-                for i in range(1, len(grp) - 2):
-                    for j in range(i + 1, len(grp) - 1):
-                        seq = list(df['seq'])[j] + list(grp['seq'])[i]
-                        ind = list(df.index)[j] + ':' + list(grp.index)[i]
+                for i in range(1, len(grp)-2):
+                    for j in range(i+1, len(grp)-1):
+                        seq = list(df['seq'])[j]+list(grp['seq'])[i]
+                        ind = list(df.key)[j]+'__and__'+list(grp.key)[i]
                         d[ind] = seq
 
             if '-' in list(grp['strand']):
-                for i in range(1, len(grp) - 2):
-                    for j in range(i + 1, len(grp) - 1):
-                        seq = list(df['seq'])[i] + list(grp['seq'])[j]
-                        ind = list(df.index)[i] + list(grp.index)[j]
+                for i in range(1, len(grp)-2):
+                    for j in range(i+1, len(grp)-1):
+                        seq = list(df['seq'])[i]+list(grp['seq'])[j]
+                        ind = list(df.key)[i]+'__and__'+list(grp.key)[j]
                         d[ind] = seq
-    return d
+
+    df = pandas.DataFrame.from_dict(d, orient='index')
+    df.columns = ['Seq']
+    return df
 
 
 def main():
     parser = ArgumentParser(description="Generate backsplicing junction index.")
-    parser.add_argument("--exon_starts", help="Full path and name of file for exon start sequences")
-    parser.add_argument("--exon_ends", help="Full path and name of file for exon end sequences")
-    parser.add_argument("--output_dir", help="Full path to output directory")
+    parser.add_argument('--exons', help='Full path and name of bed file containing exon coordinates (Required)')
+    parser.add_argument('--genome', help='Full path and name of fasta file containing all genome chromosome sequences '
+                                         '(Required)')
+    parser.add_argument('--output_dir', help='Full path to output directory. Default = current dir', default='./')
     args = parser.parse_args()
 
-    if os.path.isfile(args.exon_starts) and os.path.isfile(args.exon_ends):
-        exon_starts = parse_seq_file(args.exon_starts)
-        exon_ends = parse_seq_file(args.exon_ends)
-        backsplicing_juncs = generate_backsplicing_junction_seqs(exon_starts, exon_ends)
-        f = open(args.output_dir + 'backsplicing_exons_seqs.fasta', 'w')
-        for i in backsplicing_juncs.keys():
-            f.write('>%s\n' % i)
-            f.write('%s\n' % backsplicing_juncs[i])
-        f.close()
+    # Check if exons bed file exists
+    if os.path.isfile(args.exons):
+        # Check if genome sequences fasta file exists
+        if os.path.isfile(args.genome):
+            # Parse exons bed file
+            exons = parse_exons_bed_file(args.exons)
+
+            # Create exon starts and stops bed files
+            starts = create_exon_starts_bed_file(exons)
+            stops = create_exon_stops_bed_file(exons)
+
+            # Create dataframe containing sequences for starts and stops of each exon
+            starts = extract_genome_seqs_for_regions(starts, args.genome)
+            stops = extract_genome_seqs_for_regions(stops, args.genome)
+
+            # Generate backsplicing junction sequences
+            d = generate_backsplicing_junction_seqs(starts, stops)
+
+            f = open(args.output_dir + 'exon_exon/backsplicing_exons_seqs.fasta', 'w')
+            for i in d.keys():
+                f.write('>%s\n'%i)
+                f.write('%s\n'%d[i])
+            f.close()
+        else:
+            parser.error('Genome sequences Fasta file not found. Enter full path and name of the Fasta file.')
     else:
-        parser.error('Exon Starts or Exon Ends file not found !')
+        parser.error('Exons BED file not found. Enter full path and name of the BED file.')
 
 
 if __name__ == '__main__':
