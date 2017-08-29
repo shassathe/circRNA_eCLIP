@@ -68,22 +68,6 @@ def extract_genome_seqs_for_regions(bed, genome_seqs):
     return region_seqs
 
 
-def parse_seq_file(f):
-    """
-    This function parses relevant information from the 'key' column in the input dataframe.
-    :param f: Full path of the input dataframe as given in args.exon_start and args.exon_ends
-    :return df: Parsed dataframe
-    """
-    # Read input dataframe.
-    df = pandas.read_csv(f, sep='\t', names=['key', 'seq'])
-    # Split 'key' column to extract relevant information.
-    df.index = map(lambda x: x.split('__')[3] + '__' + x.split('__')[4], df['key'])
-    df['tx'] = map(lambda x: x.split('__')[3], df['key'])
-    df['exon_num'] = map(lambda x: x.split('__')[4], df['key'])
-    df['strand'] = map(lambda x: x.split('__')[5], df['key'])
-    return df
-
-
 def generate_backsplicing_junction_seqs(starts, stops):
     """
     This function concatenates the sequences from two backsplicing exons to generate a single backsplicing junction
