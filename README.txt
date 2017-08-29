@@ -5,8 +5,7 @@ The purpose of this repo is to find reads mapping to circular RNAs within an eCL
 Backsplicing Junctions Database
 
 A customized "backsplicing junctions" database was created, which contains the sequences of all possible backsplicing junctions in the human genome ( hg19 ). A backsplicing junction was formed by merging 30bp from the 3' end of the downstream exon and 5` end of the upstream exon. This was done for all exons within a gene, excluding the first and last exons of a gene.
-
-You can create your own backsplicing junctions database using the 'create_backsplicing_db_from_annotation.py' script.
+You can create your own backsplicing junctions database from the FASTA file using the 'create_backsplicing_db_from_annotation.py' script.Currently it takes roughly 3 - 4 hours to create the FASTA file for backsplicing junctions
 Index the junction database using 'bwa index -p <prefix> <in.fasta>
 
 BWA Alignment
