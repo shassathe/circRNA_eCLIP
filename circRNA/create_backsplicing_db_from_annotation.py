@@ -68,6 +68,22 @@ def extract_genome_seqs_for_regions(bed, genome_seqs):
     return region_seqs
 
 
+def parse_seq_file(f):
+    """
+    This function parses relevant information from the 'key' column in the input dataframe.
+    :param f: Full path of the input dataframe as given in args.exon_start and args.exon_ends
+    :return df: Parsed dataframe
+    """
+    # Read input dataframe.
+    df = pandas.read_csv(f, sep='\t', names=['key', 'seq'])
+    # Split 'key' column to extract relevant information.
+    df.index = map(lambda x: x.split('__')[3] + '__' + x.split('__')[4], df['key'])
+    df['tx'] = map(lambda x: x.split('__')[3], df['key'])
+    df['exon_num'] = map(lambda x: x.split('__')[4], df['key'])
+    df['strand'] = map(lambda x: x.split('__')[5], df['key'])
+    return df
+
+
 def generate_backsplicing_junction_seqs(starts, stops):
     """
     This function concatenates the sequences from two backsplicing exons to generate a single backsplicing junction
@@ -106,6 +122,26 @@ def generate_backsplicing_junction_seqs(starts, stops):
     return df
 
 
+def generate_linear_splicing_junction_seqs(starts, stops):
+    start_grouped = starts.groupby('gene')
+    d = dict()
+    for name, grp in start_grouped:
+        if 2 in list(starts.exon_num):
+            df = stops[stops['gene'] == name]
+            if '+' in list(df['strand']):
+                for i in range(1, max(df['exon_num'])):
+                    d[df[df['exon_num'] == i].key[0] +'__'+ grp[grp['exon_num'] == i+1].key[0]] = \
+                        df[df['exon_num'] == i]['seq'][0] + grp[grp['exon_num'] == i+1]['seq'][0]
+            if '-' in list(df['strand']):
+                for i in range(1, max(df['exon_num'])):
+                    d[df[df['exon_num'] == i+1].key[0] +'__'+ grp[grp['exon_num'] == i].key[0]] = \
+                        df[df['exon_num'] == i+1]['seq'][0] + grp[grp['exon_num'] == i]['seq'][0]
+
+    df = pandas.DataFrame.from_dict(d, orient='index')
+    df.columns = ['Seq']
+    return df
+
+
 def main():
     parser = ArgumentParser(description="Generate backsplicing junction index.")
     parser.add_argument('--exons', help='Full path and name of bed file containing exon coordinates (Required)')
@@ -131,8 +167,15 @@ def main():
 
             # Generate backsplicing junction sequences
             d = generate_backsplicing_junction_seqs(starts, stops)
-
             f = open(args.output_dir + 'exon_exon/backsplicing_exons_seqs.fasta', 'w')
+            for i in d.keys():
+                f.write('>%s\n'%i)
+                f.write('%s\n'%d[i])
+            f.close()
+
+            # Generate linear splicing junction sequences
+            d = generate_linear_splicing_junction_seqs(starts, stops)
+            f = open(args.output_dir + 'exon_exon/linear_splicing_exons_seqs.fasta', 'w')
             for i in d.keys():
                 f.write('>%s\n'%i)
                 f.write('%s\n'%d[i])
