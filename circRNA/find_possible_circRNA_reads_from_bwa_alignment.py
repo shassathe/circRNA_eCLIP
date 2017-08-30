@@ -151,6 +151,7 @@ def main():
                                              "(Required)")
     parser.add_argument("--cut_off", help="Cut-Off for filtering junctions. Default set to 10 reads", default=10)
     parser.add_argument("--type", help="Type of junctions. exon-exon or intron-intron")
+    parser.add_argument("--known_circRNA", help="bed file of known circRNA positions")
     args = parser.parse_args()
 
     # Check if IP sam file exists
