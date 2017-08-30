@@ -98,7 +98,7 @@ def add_keys(region_seqs):
     region_seqs.index = map(lambda x: x.split('__')[3]+'__'+x.split('__')[4], region_seqs['key'])
     region_seqs['gene'] = map(lambda x: x.split('__')[3], region_seqs['key'])
     region_seqs['exon_num'] = map(lambda x: x.split('__')[4], region_seqs['key'])
-    region_seqs['strand'] = map(lambda x: x.split('__')[5], region_seqs['key'])
+    region_seqs['strand'] = map(lambda x: x.split('__')[5].split(':')[0], region_seqs['key'])
     return region_seqs
 
 
@@ -181,8 +181,7 @@ def main():
 
     # Generate backsplicing junction sequences
     d = generate_backsplicing_junction_seqs(starts, stops)
-
-    f = open(args.output_dir + 'exon_exon/backsplicing_exons_seqs.fasta', 'w')
+    f = open(args.output_dir + 'backsplicing_exons_seqs.fasta', 'w')
     for i in d.keys():
         f.write('>%s\n'%i)
         f.write('%s\n'%d[i])
