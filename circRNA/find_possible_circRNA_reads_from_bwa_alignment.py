@@ -6,7 +6,8 @@
 # TODO: Analyze soft/hard clipped reads. For now excluding them from analysis.
 # TODO: Add analysis for reads showing insertions and deletions.
 # TODO: Add analysis for secondary alignments. For now, only considering primary alignments.
-
+# 1. Samfiles are generated from BWA aligner, aligning
+# 2.
 
 # Import required libraries
 from __future__ import division
@@ -25,9 +26,12 @@ def parse_sam_file(s, cut_off, sample):
     This function will parse the input sam file and search for reads mapping to backsplicing junctions. Unmapped reads
     are excluded from analysis. For now, only primary alignments are being considered. Also, only those reads that span
     across both exons of a backsplicing junctions are considered. The rest are excluded from all analysis.
-    :param samfile: BWA alignment sam file. This has to be the alignment file for the backsplicing database.
-    :param cut_off: Read cut-off for filtering junction. Unless given, cut-off is set at 10 reads.
-    :param sample: Type of sample. IP or INPUT. If INPUT, no filtering of junctions is performed.
+    :param s: string
+        BWA alignment sam file. This has to be the alignment file for the backsplicing database.
+    :param cut_off: integer
+        Read cut-off for filtering junction. Unless given, cut-off is set at 10 reads.
+    :param sample: string
+        Type of sample. IP or INPUT. If INPUT, no filtering of junctions is performed.
     :return: Filtered sam file that contains only those reads that pass all parameters.
     """
     # TODO: fix this, different SAM files might have different columns. Look at pysam to easily parse this
@@ -213,7 +217,7 @@ def fasta_file_for_mapped_junctions (inds, out_dir):
 def main():
     parser = ArgumentParser(description="Find reads that potentially map across backsplicing junctions.")
     parser.add_argument("--ip", help="Full path and name of sam file for IP sample (Required)")
-    parser.add_argument("--ip_linear", help="Full path and name of sam file for IP sample mapped to linear junctions",
+    parser.add_argument("--ip_linear", help="Full path and name of sam file for IP sample mapped to linear junctions. Unused for now.",
                         default='')
     parser.add_argument("--input", help="Full path and name of sam file INPUT sample", default='')
     parser.add_argument("--input_linear", help="Full path and name of sam file INPUT sample mapped to linear junctions",
