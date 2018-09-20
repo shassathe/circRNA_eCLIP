@@ -1,5 +1,5 @@
 # This script accepts a sam file for reads aligned to the "backsplicing database" using BWA. The script will search for
-# reads that map acroos any of the backsplicing junctions. The backsplicing junction database was generated for all
+# reads that map across any of the backsplicing junctions. The backsplicing junction database was generated for all
 # combinations of backsplicing exons. The database currently does not contain intron information, only exon-exon
 # backsplicing junctions are currently available.
 
@@ -15,13 +15,15 @@ import numpy
 import os
 from pybedtools import *
 from argparse import ArgumentParser
+from ntpath import basename
 import json
+from Bio import SeqIO
 
 
-def parse_sam_file(samfile, cut_off, sample):
+def parse_sam_file(s, cut_off, sample):
     """
     This function will parse the input sam file and search for reads mapping to backsplicing junctions. Unmapped reads
-    are exluded from analysis. For now, only primary alignments are being considered. Also, only those reads that span
+    are excluded from analysis. For now, only primary alignments are being considered. Also, only those reads that span
     across both exons of a backsplicing junctions are considered. The rest are excluded from all analysis.
     :param samfile: BWA alignment sam file. This has to be the alignment file for the backsplicing database.
     :param cut_off: Read cut-off for filtering junction. Unless given, cut-off is set at 10 reads.
@@ -29,41 +31,42 @@ def parse_sam_file(samfile, cut_off, sample):
     :return: Filtered sam file that contains only those reads that pass all parameters.
     """
     # TODO: fix this, different SAM files might have different columns. Look at pysam to easily parse this
-    samfile = pandas.read_table(samfile, sep='\t', comment='@', names=[
-        'rname', 'flag', 'junc_name', 'pos', 'mapq', 'cigar',
-        'rnext', 'pnext', 'tlen', 'seq', 'qual', 'XT', 'NM',
-        'X0', 'X1', 'XM', 'XO', 'XG', 'MDZ'
-    ])
+    samfile = pandas.read_csv(s, sep='\t', comment='@', index_col=False, header=None, engine='python')
+
     # Sam file flag 4 reads are unmapped. So, excluding such reads.
-    samfile = samfile[samfile['flag'] != 4]
+    #samfile = samfile[samfile['flag'] != 4]
+
     # Annotating transcript across which each read was mapped.
-    samfile['tx'] = map(lambda x: x.split('__')[0], samfile['junc_name'])
+    samfile['tx'] = map(lambda x: x.split('__')[3], samfile[2])
 
     # Generate read and transcript key.
-    samfile['rname-tx'] = samfile['rname'] + '-' + samfile['tx']
+    samfile['rname-tx'] = samfile[0] + '-' + samfile['tx']
 
     # Extract reads that show soft or hard splicing or insertions or deletions. For now not considering such reads. Need
     #  to analyze them further
-    X = samfile[samfile['cigar'].str.contains('S') | samfile['cigar'].str.contains('H') | samfile['cigar'].str.
-        contains('I') | samfile['cigar'].str.contains('D')]
+    X = samfile[samfile[5].str.contains('S') | samfile[5].str.contains('H') | samfile[5].str.contains('I') |
+                samfile[5].str.contains('D')]
     samfile = samfile.loc[set(samfile.index).difference(set(X.index))]
 
+    # TODO: remove this step. probably not required with the new processing pipeline. For now, commented it out.
     # Keep only primary alignments. Excluding secondary alignmens for now
-    samfile = samfile[(samfile['flag'] == 0) | (samfile['flag'] == 16)]
+    #print set(samfile['flag'])
+    #print samfile.head()
+    #samfile = samfile[(samfile['flag'] == 0) | (samfile['flag'] == 16)]
 
     # Search for reads that start mapping after position '36' or those that finish mapping before position '36'. Such
     # reads essentially map to only one exon of the junction, so excluding them from analysis.
-    samfile['match_len'] = samfile['cigar'].str.extract('(\d\d)', expand=True)
-    samfile['match_end_pos'] = samfile['pos'].astype(int) + samfile['match_len'].astype(int)
-    samfile = samfile[(samfile['match_end_pos'] > 40) & (samfile['pos'] <= 30)]
+    samfile['match_len'] = samfile[5].str.extract('(\d\d)', expand=True)
+    samfile['match_end_pos'] = samfile[3].astype(int) + samfile['match_len'].astype(int)
+    samfile = samfile[(samfile['match_end_pos'] > 35) & (samfile[3] <= 25)]
 
     # Remove reads that have a mapping quality less than 20 ( -log10(0.01) ). Also remove reads that have a mapping
     # quality of 255. 255 means that a mapping quality score is not available for the read.
-    samfile = samfile[(samfile['mapq'] >= 20) & (samfile['mapq'] != 255)]
+    samfile = samfile[(samfile[4] >= 20) & (samfile[4] != 255)]
 
     # Remove duplicate reads. Reads are considered duplicates if they have the same start and end position on the same
     # junction
-    samfile = check_for_duplicate_reads(samfile)
+    #samfile = check_for_duplicate_reads(samfile)
 
     # Count coverage across all backsplicing junctions. Coverage == # of reads spanning that junction
     coverage = count_backsplicing_junc_coverage(samfile)
@@ -71,7 +74,7 @@ def parse_sam_file(samfile, cut_off, sample):
     # Filter junctions based on read cut-off. This is done only for IP backsplicing sample.
     if sample == 'ip_back':
         coverage = coverage[coverage >= cut_off]
-        samfile = samfile[samfile['junc_name'].isin(list(coverage.index))]
+        samfile = samfile[samfile[2].isin(list(coverage.index))]
 
     return samfile, coverage
 
@@ -111,8 +114,8 @@ def check_for_duplicate_reads(samfile):
     :param samfile: The filtered sam file from the 'parse_sam_file' function.
     :return: samfile without duplicate reads
     """
-    samfile['key'] = samfile['junc_name'] + '_' + samfile['flag'].astype(str) + '_' + samfile['pos'].astype(str) + '_' + \
-                     samfile['cigar'].astype(str)
+    samfile['key'] = samfile[2] + '_' + samfile[1].astype(str) + '_' + samfile[3].astype(str) + '_' + \
+                     samfile[5].astype(str)
     samfile = samfile.drop_duplicates('key')
     return samfile.drop('key', 1)
 
@@ -123,7 +126,7 @@ def count_backsplicing_junc_coverage(samfile):
     :param samfile: The filtered sam file from the 'parse_sam_file' function.
     :return: Dataframe for coverge across each junction
     """
-    return samfile['junc_name'].value_counts()
+    return samfile[2].value_counts()
 
 
 def normalize_by_input(ip, inpt):
@@ -162,7 +165,7 @@ def diff_exp_of_back_junc(back_cov, linear_cov):
     linear_cov_df['junc'] = linear_cov_df['tx'] + '__' + linear_cov_df['exon_1'].astype(str) + '__' + linear_cov_df['tx'] \
                          + '__' + linear_cov_df['exon_2'].astype(str)
     linear_cov_df = linear_cov_df.set_index('junc')
-    
+
     # Create empty dataframe to fill ratios into
     df = pandas.DataFrame(index=back_cov.index, columns=['IP_Back', 'IP_Linear', 'Back/Linear'])
     d = dict()
@@ -189,6 +192,24 @@ def diff_exp_of_back_junc(back_cov, linear_cov):
     return df, d
 
 
+def generate_sam_index (inds, out_file):
+    f = open(out_file, 'w')
+    f.write('@HD\tVN:1.5\tSO:queryname\n')
+    for i in inds:
+        f.write('@SQ\tSN:%s\tLN:61\n'%i)
+    f.close()
+
+
+def fasta_file_for_mapped_junctions (inds, out_dir):
+    fasta_sequences = SeqIO.parse(open('/home/shsathe/backsplicing_exons_db/v4/exon_exon/backsplicing_exons_seqs.fasta'), 'fasta')
+    f = open(out_dir + '/mapped_junctions_sequences.fa', 'w')
+    for fasta in fasta_sequences:
+        if fasta.id in inds:
+            f.write('>%s\n' %(fasta.id))
+            f.write('%s\n' % (str(fasta.seq)))
+    f.close()
+
+
 def main():
     parser = ArgumentParser(description="Find reads that potentially map across backsplicing junctions.")
     parser.add_argument("--ip", help="Full path and name of sam file for IP sample (Required)")
@@ -199,13 +220,14 @@ def main():
                         default='')
     parser.add_argument("--output_dir", help="Full path to output directory. Default is same directory as IP sample "
                                              "(Required)")
-    parser.add_argument("--cut_off", help="Cut-Off for filtering junctions. Default set to 10 reads", default=10)
-    parser.add_argument("--type", help="Type of junctions. exon-exon or intron-intron")
+    parser.add_argument("--cut_off", help="Cut-Off for filtering junctions. Default set to 5 reads", default=5, type=int)
+    parser.add_argument("--type", help="Type of junctions. exon-exon or intron-intron", default='exon-exon')
     args = parser.parse_args()
 
     # Check if IP sam file exists
     if os.path.isfile(args.ip):
         print("Found IP Sam File...\n")
+        fname = basename(args.ip).split('.')[0]
         ip_back_filtered, ip_back_coverage = parse_sam_file(args.ip, args.cut_off, 'ip_back')
 
         # Check if any junctions passed the 10 reads cut-off.
@@ -213,8 +235,8 @@ def main():
             print("No backsplicing %s junctions were found in the IP sample." % args.type)
         else:
             # Intersect junction passing read cut-off with known back-splicing exons. Outputn as bed file
-            ip_back_known_bed_file = create_bed_for_junctions(set(ip_back_filtered.junc_name))
-            output_file = args.output_dir + '/Known_Backsplicing_Junctions.bed'
+            ip_back_known_bed_file = create_bed_for_junctions(set(ip_back_filtered[2]))
+            output_file = args.output_dir + '/' + fname + '_Known_Backsplicing_Junctions.bed'
             ip_back_known_bed_file.saveas(output_file)
             print("Bed file for known backsplicing %ss written to following file: %s" % (args.type.split('-')[0],
                                                                                          output_file))
@@ -228,22 +250,22 @@ def main():
 
                 # Calculate differential expression of IP back-splicing junctions compared to IP linear junctions
                 ip_back_junc_diff_exp, d = diff_exp_of_back_junc(ip_back_coverage, ip_linear_junc_cov)
-                with open(args.output_dir + 'Corresponding_Linear_Junctions.txt', 'w') as file:
+                with open(args.output_dir + '/' + fname + '_Corresponding_Linear_Junctions.txt', 'w') as file:
                     file.write(json.dumps(d))
 
-                output_file = args.output_dir + '/Linear_Juncs_Filtered_Sam_File.txt'
+                output_file = args.output_dir + '/' + fname + '_Linear_Juncs_Filtered_Sam_File.txt '
                 ip_linear_samfile.to_csv(output_file, sep='\t')
                 print("Filter sam file written to following file: %s" % output_file)
 
                 print("Found %d possible reads that map to backspicing junctions." % len(set(ip_linear_samfile.rname)))
                 print("Found %d possible backspicing junctions." % len(ip_linear_junc_cov.index))
-                output_file = args.output_dir + '/LinearSplicing_Junction_Coverages.txt'
+                output_file = args.output_dir + '/' + fname + '_LinearSplicing_Junction_Coverages.txt'
                 ip_linear_junc_cov.to_csv(output_file, sep='\t')
                 print("Coverage for each linear-splicing junction found written to following file: %s" % output_file)
 
                 # Output IP back-splicing junction differential expression results
                 output_file = args.output_dir + \
-                              '/IP_Backsplicing_Junctions_Differential_Expression_Over_Linear_Junctions.txt'
+                              '/' + fname + '_IP_Backsplicing_Junctions_Differential_Expression_Over_Linear_Junctions.txt'
                 ip_back_junc_diff_exp.to_csv(output_file, sep='\t')
                 print("Differential Expression analysis of back-splicing junctions written to following file: %s" %
                       output_file)
@@ -262,19 +284,26 @@ def main():
                 ip_normalized_juncs = normalize_by_input(ip_back_coverage, input_backsplicing_junc_cov)
 
                 # Output input normalized counts
-                output_file = args.output_dir + '/IP_Backsplicing_Junctions_Coverage_Input_Normalized.txt'
+                output_file = args.output_dir + '/' + fname + '_IP_Backsplicing_Junctions_Coverage_Input_Normalized.txt'
                 ip_normalized_juncs.to_csv(output_file, sep='\t')
                 print("INPUT Normalized Junctions written to following file: %s" % output_file)
             else:
                 parser.error("INPUT SAM file not found. Enter correct path and name")
 
-            output_file = args.output_dir + '/Filtered_Sam_File.txt'
-            ip_back_filtered.to_csv(output_file, sep='\t')
+            output_file = args.output_dir + '/' + fname + '_Filtered_Sam_File.sam'
+
+            # Generate index for output sam file
+            generate_sam_index(set(ip_back_filtered[2]), output_file)
+
+            # Generate fasta file for mapped junctions
+            fasta_file_for_mapped_junctions(set(ip_back_filtered[2]), args.output_dir)
+
+            ip_back_filtered.drop([u'tx', u'rname-tx', u'match_len', u'match_end_pos'], 1).to_csv(output_file, sep='\t', header=False, index=False, mode='a')
             print("Filter sam file written to following file: %s" % output_file)
 
-            print("Found %d possible reads that map to backspicing junctions." % len(set(ip_back_filtered.rname)))
+            print("Found %d possible reads that map to backspicing junctions." % len(set(ip_back_filtered[0])))
             print("Found %d possible backspicing junctions." % len(ip_back_coverage.index))
-            output_file = args.output_dir + '/Backsplicing_Junction_Coverages.txt'
+            output_file = args.output_dir + '/' + fname + '_Backsplicing_Junction_Coverages.txt'
             ip_back_coverage.to_csv(output_file, sep='\t')
             print("Coverage for each backsplicing junction found written to following file: %s" % output_file)
 
